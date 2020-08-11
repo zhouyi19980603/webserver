@@ -42,5 +42,5 @@ namespace commen{
     static	char* error_500_form = "There was an unusual problem serving the requestd file\n";
 
 
-    static char* doc_root = "/run/media/root/linux_data/C++/UNIX 网络编程/NetProject/WebServer/resource";//网页根目录
+    static char* doc_root = "/run/media/root/linux_data/C++/UNIX 网络编程/NetProject/webserver/resource";//网页根目录
 }

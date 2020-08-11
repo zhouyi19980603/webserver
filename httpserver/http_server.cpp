@@ -19,25 +19,29 @@ HttpServer::HttpServer()
     getcwd(server_path,200); //得到当前路径
     char resource[10]="/resource"; //资源所存放的路径
 
-//    m_root = new char[strlen(server_path) +strlen(resource)+1];
-//    memset(m_root,'\0',strlen(server_path) +strlen(resource)+1);
-//    strcpy(m_root,server_path);
-//    strcat(m_root,resource); //这里的m_root是webserver加载时的资源存在位置
+    try {
+        users.resize(MAX_FD); //预先定义vector内存大小
+        m_port = 8080;
 
-//    commen::doc_root = new char[strlen(m_root)+1];
-//    strcpy(commen::doc_root,m_root);
-//    cout<<"HttpServer server_path:" <<commen::doc_root<<endl;
-
-    users.resize(MAX_FD); //预先定义vector内存大小
-    m_port = 8080;
+        int m_threads = 8;
+        m_pool = new threadpool<HttpConn>(m_threads);
+    } catch (const std::exception&) {
+        if(m_pool)
+            delete m_pool;
+        throw "内存错误";
+    }
+    user_count = 0;
 
     //commen初始化静态变量
 
 }
 
+
 HttpServer::~HttpServer()
 {
-
+    close(m_epollfd);
+    close(m_listened);
+    delete m_pool;
 }
 
 void HttpServer::start()
@@ -56,6 +60,8 @@ void HttpServer::event_listen()
     //优雅关闭
     struct linger tmp = {0, 1};
     setsockopt(m_listened, SOL_SOCKET, SO_LINGER, &tmp, sizeof(tmp));
+    int on=1;
+    setsockopt(m_listened,SOL_SOCKET, SO_REUSEADDR,&on,sizeof (on));
 
     int ret = 0;
     struct sockaddr_in address;
@@ -121,6 +127,7 @@ bool HttpServer::deal_listen()
         cout << "connfd is error 连接出错"<<endl;
         return false;
     }
+    //初始化操作
     users[connfd].init(connfd,client_address);
 }
 
@@ -130,6 +137,7 @@ void HttpServer::deal_read(int sockfd)
     {
         //这里会添加进线程池中
         cout<<"deal_read(int sockfd)"<<endl;
+        m_pool->append(&users[sockfd]);
     }else
     {
         users[sockfd].close_conn();

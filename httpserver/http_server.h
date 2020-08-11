@@ -15,6 +15,7 @@
 #include <iostream>
 #include <cstring>
 #include "httpconn/http_conn.h"
+#include "threadpool/threadpool.h"
 #include "http_epoller.h"
 
 using namespace std;
@@ -41,6 +42,7 @@ private:
     size_t user_count;
     HttpEpoller* m_epoller = nullptr;
     vector<HttpConn> users;
+    threadpool<HttpConn>* m_pool;
 
 private:
     void event_listen(); //事件监听

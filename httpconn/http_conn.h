@@ -137,6 +137,11 @@ private:
     char* m_file_address;//客户请求文件 被mmap到内存中的地址
     struct stat m_file_stat;//目标文件状态
 
+    int cgi;        //是否启用的POST
+    char *m_string; //存储请求头数据
+    int bytes_to_send;  //剩余发送字节数
+    int bytes_have_send;     //已发送字节数
+
     struct iovec m_lv[2];
     ssize_t m_iv_count;
 };

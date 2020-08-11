@@ -29,14 +29,11 @@ void HttpConn::process()
     bool write_ret = process_write(read_ret);
 
     if (!write_ret) {
-
        close_conn();
 
     }
 
     modfd(m_epolled, m_socked, EPOLLOUT);
-    printf("finished one serverice");
-
 }
 void HttpConn::init(int sockfd, const sockaddr_in& addr) {
     m_socked = sockfd;
@@ -48,6 +45,8 @@ void HttpConn::init(int sockfd, const sockaddr_in& addr) {
     init_state();
 }
 void HttpConn::init_state() {
+    bytes_to_send = 0;
+    bytes_have_send = 0;
     m_check_state = CHEACK_STATE_REQUESTLINE;
     m_link = false;//默认不保持连接
     m_quest_method = GET;
@@ -97,6 +96,7 @@ HttpConn::RESULT_CODE HttpConn::process_read()//main state mache
         //m_start_line是每一个数据行在m_read_buf中的起始位置
         //m_checked_idx表示从状态机在m_read_buf中读取的位置
         m_start_line = m_checked_idx;
+        std::cout<<"info:"<<text<<std::endl;
         switch (m_check_state) {
         case CHEACK_STATE_REQUESTLINE: {
             ret = parse_request_line(text);
@@ -186,8 +186,9 @@ bool HttpConn::process_write(HttpConn::RESULT_CODE ret)
             m_lv[1].iov_len = m_file_stat.st_size;
             m_iv_count = 2;
             //第二个iovec指针指向mmap返回的文件指针，长度指向文件大小
-//            bytes_to_send = m_write_idx + m_file_stat.st_size;
+            bytes_to_send = m_write_idx + m_file_stat.st_size;
             //这里并没有对值进行保存，而是在使用时进行了遍历
+
             return true;
 
         }
@@ -208,6 +209,7 @@ bool HttpConn::process_write(HttpConn::RESULT_CODE ret)
     m_lv[0].iov_base = m_write_buf;
     m_lv[0].iov_len = m_write_idx;
     m_iv_count = 1;
+    bytes_to_send = m_write_idx;
     return true;
 
 }
@@ -303,7 +305,7 @@ bool HttpConn::read()
         // m_read_idx为字节所读的偏移量,最后也表示一共有的字节数
         std::cout<<"read():" <<m_read_idx<<std::endl;
     }
-    process();
+//    process();
     return true;
 }
 
@@ -328,39 +330,37 @@ bool HttpConn::read()
 bool HttpConn::write()
 {
     int temp = 0;
-    int bytes_had_send = 0; //已经发送字节数
-    int bytes_to_send = 0;
-    int newadd = 0;
-    for (int i = 0; i < m_iv_count; i++) {
-
-        bytes_to_send += int(m_lv[i].iov_len);
-
+    if (bytes_to_send == 0)
+    {
+        modfd(m_epolled, m_socked, EPOLLIN);
+        init_state();
+        return true;
     }
 
     while (1)
     {
         if (bytes_to_send <= 0) {
+            unmap();
             modfd(m_epolled, m_socked, EPOLLIN);
             init_state();
             return true;
         }
         temp = writev(m_socked, m_lv, m_iv_count);
 
-        if (temp > 0)
+        if (temp >= 0)
         {
-            bytes_had_send += temp;
-            newadd = bytes_had_send - m_write_idx;
+            bytes_have_send += temp;
             bytes_to_send -= temp;
-            if (bytes_to_send >= m_lv[0].iov_len)
+            if (bytes_have_send >= m_lv[0].iov_len)
             {
                 m_lv[0].iov_len = 0;
-                m_lv[1].iov_base = m_file_address + newadd;
+                m_lv[1].iov_base = m_file_address +(bytes_have_send-m_write_idx);
                 m_lv[1].iov_len = bytes_to_send;
             }
             else
             {
-                m_lv[0].iov_base = m_write_buf + bytes_to_send;
-                m_lv[0].iov_len = m_lv[0].iov_len - bytes_to_send;
+                m_lv[0].iov_base = m_write_buf + bytes_have_send;
+                m_lv[0].iov_len = m_lv[0].iov_len - bytes_have_send;
 
             }
         }
@@ -420,7 +420,7 @@ HttpConn::RESULT_CODE HttpConn::parse_request_line(char* text) {
     else if (strcasecmp(method, "POST") == 0)
     {
         m_quest_method = POST;
-//        cgi = 1;
+        cgi = 1;
     }
     else
         return BAD_REQUEST;
@@ -480,8 +480,12 @@ CHECK_STATE_HEADER
 
 HttpConn::RESULT_CODE HttpConn::parse_headers(char* text)
 {
+    //判断是空行还是请求头
+    //等于\0表明这是空行，不是请求头
     if (text[0] == '\0') {
+        //判断是GET还是POST请求
         if (m_content_length != 0) {
+            std::cout<<"这是post请求"<<std::endl;
             m_check_state = CHEACK_STATE_CONTENT;
             return NO_REQUEST;
         }
@@ -494,10 +498,10 @@ HttpConn::RESULT_CODE HttpConn::parse_headers(char* text)
             m_link = false;
         }
     }
-    else if (strncasecmp(text, "Content-Length:15", 15) == 0) {
+    else if (strncasecmp(text, "Content-Length:", 15) == 0) {
         text += 15;
         text += strspn(text, " ");
-        m_content_length = atoi(text);
+        m_content_length = atol(text);
     }
     else if (strncasecmp(text, "Host:", 5) == 0) {
         text += 5;
@@ -535,6 +539,7 @@ HttpConn::RESULT_CODE HttpConn::parse_content(char* text)
 {
     if (m_read_idx >= (m_content_length + m_checked_idx)) {
         text[m_content_length] = '\0';
+        m_string = text;
         return GET_REQUEST;
     }
     return NO_REQUEST;
@@ -549,7 +554,7 @@ HttpConn::RESULT_CODE HttpConn::do_request()
 
     strcpy(m_real_file,commen::doc_root);
     int len = strlen(commen::doc_root);
-    std::cout<<"m_real_file:"<<commen::doc_root<<std::endl;
+//    std::cout<<"m_real_file:"<<commen::doc_root<<std::endl;
     //printf("m_url:%s\n", m_url);
     //找到m_url中/的位置
     const char *p = strrchr(m_url, '/');
@@ -592,6 +597,13 @@ HttpConn::RESULT_CODE HttpConn::do_request()
     {
         char *m_url_real = (char *)malloc(sizeof(char) * 200);
         strcpy(m_url_real, "/fans.html");
+        strncpy(m_real_file + len, m_url_real, strlen(m_url_real));
+
+        free(m_url_real);
+    }
+    else if (*(p + 1) == '2') {
+        char *m_url_real = (char *)malloc(sizeof(char) * 200);
+        strcpy(m_url_real, "/welcome.html");
         strncpy(m_real_file + len, m_url_real, strlen(m_url_real));
 
         free(m_url_real);
