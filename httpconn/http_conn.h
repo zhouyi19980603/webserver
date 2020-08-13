@@ -22,6 +22,7 @@
 #include<errno.h>
 #include<iostream>
 #include<vector>
+#include "../log/log.h"
 
 class HttpConn
 {

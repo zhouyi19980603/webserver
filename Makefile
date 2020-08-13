@@ -56,12 +56,14 @@ SOURCES       = commen/commen.cpp \
 		httpconn/http_conn.cpp \
 		httpserver/http_epoller.cpp \
 		httpserver/http_server.cpp \
+		log/log.cpp \
 		main.cpp \
 		threadpool/threadpool.cpp 
 OBJECTS       = commen.o \
 		http_conn.o \
 		http_epoller.o \
 		http_server.o \
+		log.o \
 		main.o \
 		threadpool.o
 DIST          = /opt/Qt5.14.0/5.14.0/gcc_64/mkspecs/features/spec_pre.prf \
@@ -272,10 +274,13 @@ DIST          = /opt/Qt5.14.0/5.14.0/gcc_64/mkspecs/features/spec_pre.prf \
 		httpconn/http_conn.h \
 		httpserver/http_epoller.h \
 		httpserver/http_server.h \
+		log/block_queue.h \
+		log/log.h \
 		threadpool/threadpool.h commen/commen.cpp \
 		httpconn/http_conn.cpp \
 		httpserver/http_epoller.cpp \
 		httpserver/http_server.cpp \
+		log/log.cpp \
 		main.cpp \
 		threadpool/threadpool.cpp
 QMAKE_TARGET  = WebServer
@@ -759,6 +764,10 @@ http_server.o: httpserver/http_server.cpp httpserver/http_server.h \
 		httpserver/http_epoller.h \
 		commen/commen.h
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o http_server.o httpserver/http_server.cpp
+
+log.o: log/log.cpp log/log.h \
+		log/block_queue.h
+	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o log.o log/log.cpp
 
 main.o: main.cpp httpserver/http_server.h \
 		httpconn/http_conn.h \

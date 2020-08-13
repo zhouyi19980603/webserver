@@ -1,5 +1,6 @@
 #include "http_server.h"
 #include"commen/commen.h"
+#include "../log/log.h"
 
 
 /**************************************************************
@@ -32,6 +33,8 @@ HttpServer::HttpServer()
     }
     user_count = 0;
 
+    m_close_log = 0;
+    m_log_write = 0;
     //commen初始化静态变量
 
 }
@@ -46,8 +49,25 @@ HttpServer::~HttpServer()
 
 void HttpServer::start()
 {
+    log_write();
     event_listen();
     event_loop();
+
+}
+
+void HttpServer::log_write()
+{
+//    Log::get_instance()->init("./ServerLog",2000,800000,800);
+    //0为同步写入
+    cout<<"log_write 日志写"<<endl;
+    if (0 == m_close_log)
+    {
+        //初始化日志
+//        if (1 == m_log_write)
+//            Log::get_instance()->init("./ServerLog", m_close_log, 2000, 800000, 800);
+//        else
+            Log::get_instance()->init("./ServerLog", m_close_log, 2000, 800000, 800);
+    }
 }
 
 void HttpServer::event_listen()
@@ -102,7 +122,8 @@ void HttpServer::event_loop()
             int sockfd = events[i].data.fd; //得到相应的文件描述符
             if(sockfd == m_listened) //监听事件的处理
             {
-                if(!deal_listen())
+                bool flag = deal_listen();
+                if(false == flag)
                     continue;
             }else if(events[i].events & EPOLLIN) //读
             {
@@ -121,7 +142,10 @@ bool HttpServer::deal_listen()
     struct sockaddr_in client_address;
     socklen_t client_addrlen = sizeof (client_address);
     int connfd = accept(m_listened,(sockaddr*)&client_address,&client_addrlen);
-    cout<<"这是连接事件处理"<<endl;
+
+//    cout<<"这是连接事件处理"<<endl;
+//    cout<<"connfd: "<<connfd<<endl;
+    LOG_INFO("这是连接事件处理 %d",connfd);
     if(connfd < 0)
     {
         cout << "connfd is error 连接出错"<<endl;
@@ -138,10 +162,13 @@ void HttpServer::deal_read(int sockfd)
         //这里会添加进线程池中
         cout<<"deal_read(int sockfd)"<<endl;
         m_pool->append(&users[sockfd]);
-    }else
-    {
-        users[sockfd].close_conn();
     }
+    //如果直接关闭的话就是短连接，也就是下一次使用时要重新连接
+    /*else
+    {
+        cout<<"deal_read(int sockfd) close_conn"<<endl;
+        users[sockfd].close_conn();
+    }*/
 }
 
 void HttpServer::deal_write(int sockfd)
@@ -149,9 +176,10 @@ void HttpServer::deal_write(int sockfd)
     if(users[sockfd].write())
     {
         cout<<"deal_write(int sockfd)"<<endl;
-    }else
+    }/*else
     {
 //        m_epoller->removefd(sockfd);
+        cout<<"deal_write(int sockfd) close_conn"<<endl;
         users[sockfd].close_conn();
-    }
+    }*/
 }

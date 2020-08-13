@@ -4,6 +4,8 @@
 
 int HttpConn::m_user_count = 0;
 int HttpConn::m_epolled = -1;
+
+//关闭连接
 void HttpConn::close_conn(bool real_close) {
 
     if (real_close && (m_socked != -1)) {
@@ -30,7 +32,6 @@ void HttpConn::process()
 
     if (!write_ret) {
        close_conn();
-
     }
 
     modfd(m_epolled, m_socked, EPOLLOUT);
@@ -244,6 +245,8 @@ bool HttpConn::add_response(const char* format, ...)
     m_write_idx += len;
     //清空可变参列表
     va_end(arg_list);
+
+    printf("request: %s",m_write_buf);
     return true;
 }
 bool HttpConn::add_content(const char* content)
@@ -285,6 +288,7 @@ bool HttpConn::add_headers(int content_len)
 
 bool HttpConn::read()
 {
+    std::cout<<"deal_read()"<<std::endl;
     if (m_read_idx > READ_BUFFER_SIZE) {
         return false;
     }
@@ -330,48 +334,60 @@ bool HttpConn::read()
 bool HttpConn::write()
 {
     int temp = 0;
-    if (bytes_to_send == 0)
+
+    //若要发送的数据长度为0，表示响应报文为空，一般不会出现这种情况
+    if(bytes_to_send == 0)
     {
-        modfd(m_epolled, m_socked, EPOLLIN);
+        modfd(m_epolled,m_socked,EPOLLIN);
         init_state();
         return true;
     }
 
-    while (1)
-    {
-        if (bytes_to_send <= 0) {
-            unmap();
-            modfd(m_epolled, m_socked, EPOLLIN);
-            init_state();
-            return true;
-        }
-        temp = writev(m_socked, m_lv, m_iv_count);
+    while (1) {
 
-        if (temp >= 0)
+        //所写入的缓冲区通常是非连续的
+        //将响应报文的状态行、消息头、空行和响应正文发送给浏览器端
+        temp = writev(m_socked,m_lv,m_iv_count);
+
+        if(temp < 0)
         {
-            bytes_have_send += temp;
-            bytes_to_send -= temp;
-            if (bytes_have_send >= m_lv[0].iov_len)
+            if(errno == EAGAIN)
             {
-                m_lv[0].iov_len = 0;
-                m_lv[1].iov_base = m_file_address +(bytes_have_send-m_write_idx);
-                m_lv[1].iov_len = bytes_to_send;
-            }
-            else
-            {
-                m_lv[0].iov_base = m_write_buf + bytes_have_send;
-                m_lv[0].iov_len = m_lv[0].iov_len - bytes_have_send;
-
-            }
-        }
-        else {
-            if (errno == EAGAIN)
-            {
-                modfd(m_epolled, m_socked, EPOLLOUT);
+                //重新注册写事件
+                modfd(m_epolled,m_socked,EPOLLOUT);
                 return true;
             }
             unmap();
             return false;
+        }
+
+        bytes_have_send += temp;
+        bytes_to_send -= temp;
+
+        if(bytes_have_send >= m_lv[0].iov_len)
+        {
+            m_lv[0].iov_len = 0;
+            m_lv[1].iov_base = m_file_address + (bytes_have_send - m_write_idx);
+            m_lv[1].iov_len = bytes_to_send;
+        }
+        else
+        {
+            m_lv[0].iov_base = m_write_buf + bytes_have_send;
+            m_lv[0].iov_len = m_lv[0].iov_len-bytes_have_send;
+        }
+
+        if(bytes_to_send <=0)
+        {
+            unmap();
+            modfd(m_epolled,m_socked,EPOLLIN);
+            if(m_link)
+            {
+                init_state();//重新初始化HTTP对象,不断开连接
+                return true;
+            }else
+            {
+                return false;
+            }
         }
     }
 }
@@ -495,7 +511,8 @@ HttpConn::RESULT_CODE HttpConn::parse_headers(char* text)
         text += 11;
         text += strspn(text, " ");
         if (strcasecmp(text, "keep-alive") == 0) {
-            m_link = false;
+//            m_link = false;
+            m_link = true;
         }
     }
     else if (strncasecmp(text, "Content-Length:", 15) == 0) {

@@ -32,13 +32,16 @@ public:
     ~HttpServer();
 
     void start();
+    void log_write();
 
 private:
     char* m_root;
     size_t m_port;
+    int m_log_write; //是否写在日志里
+    int m_close_log; //是否优雅的关闭
     epoll_event events[MAX_EVENT_NUMBER];  //最大事件处理数 也就是连接数
     int m_epollfd;
-    size_t m_listened;
+    int m_listened;
     size_t user_count;
     HttpEpoller* m_epoller = nullptr;
     vector<HttpConn> users;
